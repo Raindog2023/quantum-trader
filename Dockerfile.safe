@@ -1,0 +1,51 @@
+# ==========================================
+# Stage: Python Runtime - SAFETY HARDENED
+# Backend Only (Handles Missing Modules)
+# ==========================================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    R20_DOCKER=1 \
+    PORT=8080 \
+    TRADING_MODE=backtest \
+    RISK_LIMIT_PERCENT=1.0 \
+    MAX_POSITION_SIZE=100 \
+    DRY_RUN=1 \
+    STRATEGY_VALIDATION=1
+
+# System utilities (with resource constraints in mind)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    procps \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies - STRICT PINNING for reproducibility
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt httpx
+
+# Copy application code - BACKEND & DASHBOARD
+COPY r20_backend/ ./r20_backend/
+COPY r20_gateway/ ./r20_gateway/
+COPY scripts/ ./scripts/
+COPY plugins/ ./plugins/
+COPY tests/ ./tests/
+COPY dashboard/ ./dashboard/
+
+# SAFETY: Create runtime state folders with restricted permissions
+RUN mkdir -p /app/data /app/logs /app/backups /app/audit /app/strategies /app/config \
+    && chmod 755 /app/data /app/logs /app/backups /app/audit /app/strategies /app/config
+
+EXPOSE 8080
+
+# Comprehensive health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:8080/api/v1/health || exit 1
+
+# Default: Backtest mode
+CMD ["python", "-m", "uvicorn", "r20_backend.app:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -1,0 +1,52 @@
+services:
+  - type: web
+    name: quantum-trader
+    env: docker
+    repo: https://github.com/Raindog2023/quantum-trader
+    branch: main
+    dockerfile: Dockerfile.safe
+    dockerComposefile: docker-compose.safe.yml
+    
+    # Environment variables
+    envVars:
+      - key: TRADING_MODE
+        value: backtest
+      - key: DRY_RUN
+        value: "1"
+      - key: STRATEGY_VALIDATION
+        value: "1"
+      - key: RISK_LIMIT_PERCENT
+        value: "1.0"
+      - key: STOP_LOSS_PERCENT
+        value: "5.0"
+      - key: R20_SETUP_TOKEN
+        scope: secret
+      - key: OKX_DEMO_API_KEY
+        scope: secret
+      - key: OKX_DEMO_SECRET_KEY
+        scope: secret
+      - key: OKX_DEMO_PASSPHRASE
+        scope: secret
+    
+    # Build & deploy settings
+    buildCommand: docker compose -f docker-compose.safe.yml build
+    startCommand: docker compose -f docker-compose.safe.yml up
+    
+    # Port settings
+    port: 8080
+    
+    # Health check
+    healthCheckPath: /api/v1/health
+    
+    # Auto-deploy from GitHub
+    autoDeploy: true
+    
+    # Disk usage  
+    disk:
+      size: 1GB
+    
+    # Resource limits (free tier)
+    numInstances: 1
+    
+    # Logging
+    logLevel: info

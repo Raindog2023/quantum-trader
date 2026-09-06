@@ -1,0 +1,159 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quantum-trader
+  namespace: quantum-trading
+  labels:
+    app: quantum-trader
+    component: backend
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  
+  selector:
+    matchLabels:
+      app: quantum-trader
+  
+  template:
+    metadata:
+      labels:
+        app: quantum-trader
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    
+    spec:
+      serviceAccountName: quantum-trader
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      
+      containers:
+      - name: quantum-trader
+        image: quantum-trader-safe:latest
+        imagePullPolicy: Always
+        
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        
+        env:
+        - name: TRADING_MODE
+          value: "backtest"
+        - name: DRY_RUN
+          value: "1"
+        - name: STRATEGY_VALIDATION
+          value: "1"
+        - name: RISK_LIMIT_PERCENT
+          value: "1.0"
+        - name: STOP_LOSS_PERCENT
+          value: "5.0"
+        - name: DAILY_LOSS_LIMIT_PERCENT
+          value: "3.0"
+        - name: R20_SETUP_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: r20-secrets
+              key: R20_SETUP_TOKEN
+        - name: OKX_DEMO_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: r20-secrets
+              key: OKX_DEMO_API_KEY
+              optional: true
+        - name: OKX_DEMO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: r20-secrets
+              key: OKX_DEMO_SECRET_KEY
+              optional: true
+        
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        
+        startupProbe:
+          httpGet:
+            path: /api/v1/health
+            port: http
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 30
+        
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        - name: logs
+          mountPath: /app/logs
+        - name: audit
+          mountPath: /app/audit
+        - name: strategies
+          mountPath: /app/strategies
+        
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
+      
+      volumes:
+      - name: data
+        emptyDir:
+          sizeLimit: 500Mi
+      - name: logs
+        emptyDir:
+          sizeLimit: 500Mi
+      - name: audit
+        emptyDir:
+          sizeLimit: 500Mi
+      - name: strategies
+        emptyDir:
+          sizeLimit: 100Mi
+      
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - quantum-trader
+              topologyKey: kubernetes.io/hostname
+      
+      terminationGracePeriodSeconds: 30

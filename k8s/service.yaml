@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: quantum-trader
+  namespace: quantum-trading
+  labels:
+    app: quantum-trader
+spec:
+  type: ClusterIP
+  selector:
+    app: quantum-trader
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: quantum-trader
+  namespace: quantum-trading
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: quantum-trading
+  labels:
+    app: quantum-trader

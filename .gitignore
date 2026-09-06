@@ -1,3 +1,8 @@
+# Environment files (secrets)
+.env
+.env.local
+.env.*.local
+
 # Python
 __pycache__/
 *.py[cod]
@@ -5,6 +10,8 @@ __pycache__/
 *.so
 .Python
 env/
+venv/
+ENV/
 build/
 develop-eggs/
 dist/
@@ -17,117 +24,46 @@ parts/
 sdist/
 var/
 wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 
-# Virtual Environments
-.venv/
-venv/
-ENV/
-
-# Sensitive & Secret Credentials (CRITICAL)
-.env
-.env.local
-.okx/
-.agents/
-agent/
-.claude/
-.qwenpaw/
-.mcp
-skill.json
-skills-lock.json
-.skill.json.lock
-agent.json
-.bootstrap_completed
-AGENTS.md
-SOUL.md
-PROFILE.md
-MEMORY.md
-HEARTBEAT.md
-.bypy/
-*.pem
-*.key
-*.secret
-id_rsa
-id_rsa.pub
-token.json
-credentials.json
-.r20-admin-bootstrap
-
-# Live Real-Money Ledger & Private DBs (CRITICAL)
-data/*.json
-data/*.db
-data/*.db-wal
-data/*.db-shm
-data/*.sqlite
-data/*.xlsx
-data/*.csv
-data/*.lock
-data/*.tmp
-data/*.enc
-data/*.txt
-data/*.md
-data/.*secret_key
-data/credentials/
-trading.html
-OPEN_SOURCE_CONTROL_TODO.md
-CONTROL_PLANE_V2_TODO.md
-!data/.gitkeep
-
-# Live Logs & Backups & PIDs
-logs/
-backups/
-*.log
-*.tar.gz
-*.zip
-*.pid
-*_TODO.md
-R20_V600_PREVIEW_TODO.md
-.github_device_pending.json
-
-# OS & Editor
-.DS_Store
-Thumbs.db
-.idea/
+# IDE
 .vscode/
+.idea/
 *.swp
 *.swo
+*~
+.DS_Store
 
-# Browser screenshots and temp artifacts
-browser_screenshot_*.png
-dashboard_*.png
-linux_do_*.png
-baidu_auth_*.png
-admin_*.png
-refined_*.png
-tab_*.png
-current_*.png
-!docs/images/*.png
-fix_*.py
-ui_patch.py
-refine_*.py
-light_theme_*.py
-premium_ui.py
-chats.json
-jobs.json
-credentials.yaml
-history.db*
-checkpoints/
-digest/
-drivers/
-media/
-mem_agent/
-mem_metadata/
-RELEASE_NOTES_*.md
-mem_session/
-memory/
-sessions/
-skills/
-tool_results/
-linux_do_post_draft.html
-linux_do_promo_card*.html
-*_TODO.md
-state/
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Runtime
+data/
+logs/
+audit/
+backups/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Render
+render-build.log
+render-logs/
+
+# Kubernetes
+*.local.yaml
+kubeconfig.yaml
+
+# OS
+.DS_Store
+Thumbs.db

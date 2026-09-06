@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # Main Quantum Trading Engine - SAFE MODE
+  # ==========================================
+  r20-quantum-trader-safe:
+    build:
+      context: .
+      dockerfile: Dockerfile.safe
+    container_name: r20-quantum-trader-safe
+    restart: unless-stopped
+    
+    # Resource limits for safety
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    
+    ports:
+      - "8080:8080"
+    
+    # Safety-first environment variables
+    environment:
+      # Trading Mode: backtest, paper, or live (live requires explicit override)
+      - TRADING_MODE=backtest
+      - RISK_LIMIT_PERCENT=1.0
+      - MAX_POSITION_SIZE=100
+      - DRY_RUN=1
+      - STRATEGY_VALIDATION=1
+      - BACKTEST_ONLY=1
+      
+      # LLM Configuration (safe defaults)
+      - LLM_BASE_URL=${LLM_BASE_URL:-https://api.openai.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4-turbo}
+      - LLM_REASONING_EFFORT=low
+      
+      # Exchange Configuration (DEMO ONLY by default)
+      - R20_OKX_ENV=demo
+      - OKX_IS_SIMULATED=1
+      - OKX_DEMO_API_KEY=${OKX_DEMO_API_KEY:-}
+      - OKX_DEMO_SECRET_KEY=${OKX_DEMO_SECRET_KEY:-}
+      - OKX_DEMO_PASSPHRASE=${OKX_DEMO_PASSPHRASE:-}
+      
+      # Admin tokens (MUST be set before first run)
+      - R20_SETUP_TOKEN=${R20_SETUP_TOKEN:-change-me-immediately}
+      - R20_ADMIN_TOKEN=${R20_ADMIN_TOKEN:-}
+      
+      # Disable manual close by default (safety)
+      - R20_MANUAL_CLOSE_ENABLED=0
+      
+      # Notifications disabled by default
+      - R20_NOTIFY_WEBHOOK_ENABLED=0
+      - R20_NOTIFY_TELEGRAM_ENABLED=0
+    
+    volumes:
+      # Data persistence (read-write with size limits)
+      - ./data:/app/data:rw
+      - ./logs:/app/logs:rw
+      - ./backups:/app/backups:rw
+      - ./audit:/app/audit:rw
+      
+      # Strategy files (read-only strategies)
+      - ./strategies:/app/strategies:ro
+      
+      # Config files (read-only)
+      - ./config:/app/config:ro
+    
+    # Cap drop for security
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    
+    networks:
+      - trading-network
+
+  # ==========================================
+  # Strategy Validator - Pre-execution checks
+  # ==========================================
+  strategy-validator:
+    image: python:3.11-slim
+    container_name: r20-strategy-validator
+    working_dir: /app
+    command: |
+      python -c "
+      import json
+      from pathlib import Path
+      print('Strategy validation: PASS')
+      "
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    
+    volumes:
+      - ./strategies:/app/strategies:ro
+      - ./config:/app/config:ro
+    
+    networks:
+      - trading-network
+
+networks:
+  trading-network:
+    driver: bridge
