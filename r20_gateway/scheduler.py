@@ -4,6 +4,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import os
 import subprocess
 import sys
 from typing import Any
@@ -28,6 +29,16 @@ class JobSpec:
     offset_seconds: int = 0
 
 
+def trader_script() -> str:
+    """Explicit opt-in health observation; unknown backends never execute."""
+    backend = os.environ.get("R20_TRADER_BACKEND", "okx")
+    if backend == "okx":
+        return "ai_factor_trader.py"
+    if backend == "kraken_observer":
+        return "kraken_observer.py"
+    raise ValueError("Unsupported R20_TRADER_BACKEND")
+
+
 JOBS = (
     JobSpec("trader", "ai_factor_trader.py", 15 * 60, 840),
     JobSpec("factor_library", "factor_library.py", 60, 55),
@@ -48,7 +59,8 @@ def backup_job_specs() -> tuple[JobSpec, ...]:
 
 
 def current_jobs() -> tuple[JobSpec, ...]:
-    return (*JOBS, *backup_job_specs())
+    research = (JobSpec("market_scanner", "kraken_market_scanner.py", 15 * 60, 600),) if os.environ.get("R20_MARKET_SCANNER_ENABLED") == "1" else ()
+    return (*JOBS, *research, *backup_job_specs())
 
 
 def scheduler_snapshot(store: GatewayStore) -> dict[str, Any]:
@@ -66,7 +78,7 @@ def scheduler_snapshot(store: GatewayStore) -> dict[str, Any]:
         schedule_text = f"每 {spec.interval_seconds // 60} 分钟 (错峰 +{spec.offset_seconds // 60}m)" if (spec.interval_seconds and spec.offset_seconds) else (f"每 {spec.interval_seconds // 60} 分钟" if spec.interval_seconds else "、".join(times))
         jobs.append({
             "name": spec.name,
-            "script": spec.script,
+            "script": trader_script() if spec.name == "trader" else spec.script,
             "last_scheduled_at": last.isoformat() if last else "",
             "schedule": schedule_text,
             "timezone": "Asia/Shanghai",
@@ -131,7 +143,8 @@ class GatewayScheduler:
     def _execute(self, spec: JobSpec) -> None:
         run_id = self.store.begin_job(spec.name)
         try:
-            command = [sys.executable, str(SCRIPTS / spec.script)]
+            script = trader_script() if spec.name == "trader" else spec.script
+            command = [sys.executable, str(SCRIPTS / script)]
             if spec.schedule_key.startswith("backup_job:"):
                 command.extend(["--job-id", spec.schedule_key.split(":", 1)[1]])
             result = subprocess.run(
@@ -141,7 +154,14 @@ class GatewayScheduler:
                 capture_output=True,
                 timeout=spec.timeout_seconds,
             )
-            detail = (result.stderr if result.returncode else result.stdout)[-2000:]
+            if result.returncode:
+                detail = "\n".join(
+                    part.strip()
+                    for part in (result.stdout, result.stderr)
+                    if part and part.strip()
+                )[-2000:]
+            else:
+                detail = result.stdout[-2000:]
             self.store.finish_job(run_id, result.returncode, detail)
         except subprocess.TimeoutExpired as exc:
             self.store.finish_job(run_id, 124, f"timeout after {spec.timeout_seconds}s: {exc}")
@@ -170,7 +190,7 @@ class GatewayScheduler:
             schedule_text = f"每 {spec.interval_seconds // 60} 分钟 (错峰 +{spec.offset_seconds // 60}m)" if (spec.interval_seconds and spec.offset_seconds) else (f"每 {spec.interval_seconds // 60} 分钟" if spec.interval_seconds else "、".join(self._scheduled_times(spec, schedule)))
             result.append({
                 "name": spec.name,
-                "script": spec.script,
+                "script": trader_script() if spec.name == "trader" else spec.script,
                 "running": spec.name in self.running and not self.running[spec.name].done(),
                 "last_scheduled_at": last.isoformat() if last else "",
                 "schedule": schedule_text,

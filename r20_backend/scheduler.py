@@ -6,6 +6,7 @@ which preserves each script's file lock and fail-closed behavior.
 from __future__ import annotations
 import fcntl
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -30,6 +31,16 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
 )
 
+def trader_script() -> str:
+    """Explicit opt-in health observation; unknown backends never execute."""
+    backend = os.environ.get("R20_TRADER_BACKEND", "okx")
+    if backend == "okx":
+        return "ai_factor_trader.py"
+    if backend == "kraken_observer":
+        return "kraken_observer.py"
+    raise ValueError("Unsupported R20_TRADER_BACKEND")
+
+
 JOBS = {
     "trader": ("ai_factor_trader.py", 15 * 60),
     "factor_library": ("factor_library.py", 60),
@@ -40,8 +51,12 @@ JOBS = {
 }
 
 
+if os.environ.get("R20_MARKET_SCANNER_ENABLED") == "1":
+    JOBS["market_scanner"] = ("kraken_market_scanner.py", 15 * 60)
+
+
 def run_script(name: str) -> None:
-    script = SCRIPTS / JOBS[name][0]
+    script = SCRIPTS / (trader_script() if name == "trader" else JOBS[name][0])
     result = subprocess.run([sys.executable, str(script)], cwd=ROOT, text=True, capture_output=True, timeout=600)
     if result.returncode:
         logging.error("job=%s rc=%s stderr=%s", name, result.returncode, result.stderr[-1000:])
@@ -82,6 +97,9 @@ def main() -> None:
             if not last["news"] or (current - last["news"]).total_seconds() >= 10 * 60:
                 run_script("news")
                 last["news"] = datetime.now(tz)
+            if "market_scanner" in JOBS and (not last["market_scanner"] or (current - last["market_scanner"]).total_seconds() >= 15 * 60):
+                run_script("market_scanner")
+                last["market_scanner"] = datetime.now(tz)
             schedule = load_schedule()
             briefing_times = schedule.get("briefing_times", ["08:00", "20:00"])
             if any(due_daily(now, schedule_time, last["daily_briefing"]) for schedule_time in briefing_times):
