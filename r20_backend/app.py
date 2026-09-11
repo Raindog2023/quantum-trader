@@ -1104,6 +1104,13 @@ def update_admin_config(payload: AdminConfigUpdate, x_r20_admin_token: str | Non
     if "notification_webhook" in data and data["notification_webhook"] and not data["notification_webhook"].startswith(("https://", "http://")):
         raise HTTPException(status_code=400, detail="Webhook 必须以 http:// 或 https:// 开头")
     selected_mode = data.get("okx_environment") or ("demo" if data.get("okx_simulated") else "live" if "okx_simulated" in data else None)
+    if selected_mode == "live":
+        # Texas/US: OKX live is banned — force paper, fail-closed.
+        from .texas_guard import assert_texas_legal_live
+        try:
+            assert_texas_legal_live("okx")
+        except RuntimeError as e:
+            raise HTTPException(status_code=403, detail=str(e))
     if selected_mode and selected_mode != settings.okx_environment:
         import fcntl
         lock_path = DATA_DIR / ".ai_factor_trader.lock"; lock_path.parent.mkdir(parents=True, exist_ok=True)
