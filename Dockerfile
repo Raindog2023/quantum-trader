@@ -41,7 +41,8 @@ COPY scripts/ ./scripts/
 COPY plugins/ ./plugins/
 COPY dashboard/ ./dashboard/
 COPY tests/ ./tests/
-COPY static/ ./static/
+# NOTE: no top-level static/ dir in repo — removed (was breaking docker build).
+# If legacy static assets return, re-add: COPY static/ ./static/
 
 # Copy built frontend from stage 1
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist

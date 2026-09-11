@@ -4,11 +4,14 @@ services:
     env: docker
     repo: https://github.com/Raindog2023/quantum-trader
     branch: main
-    dockerfile: Dockerfile.safe
-    dockerComposefile: docker-compose.safe.yml
-    
-    # Environment variables
+    dockerfilePath: ./Dockerfile.safe
+    healthCheckPath: /api/v1/health
+    # Texas/US note: OKX is NOT legal in Texas. This service boots
+    # paper-only (TRADING_MODE=backtest, DRY_RUN=1). Do NOT point it at
+    # OKX live keys. Kraken/Coinbase are the Texas-legal venues.
     envVars:
+      - key: EXCHANGE_ALLOWLIST
+        value: kraken,coinbase
       - key: TRADING_MODE
         value: backtest
       - key: DRY_RUN
@@ -28,9 +31,8 @@ services:
       - key: OKX_DEMO_PASSPHRASE
         scope: secret
     
-    # Build & deploy settings
-    buildCommand: docker compose -f docker-compose.safe.yml build
-    startCommand: docker compose -f docker-compose.safe.yml up
+    # Build & deploy: Render native docker runtime builds Dockerfile.safe.
+    # (docker compose commands are NOT supported on Render — removed.)
     
     # Port settings
     port: 8080
