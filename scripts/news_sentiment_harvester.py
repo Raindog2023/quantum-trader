@@ -24,6 +24,8 @@ import time
 import datetime
 import subprocess
 import re
+import shlex
+import shutil
 
 WORKSPACE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(WORKSPACE_DIR, "data")
@@ -38,8 +40,22 @@ BLACK_SWAN_PATTERNS = [
     (r"(USDT|USDC|DAI).*(严重脱锚|脱锚幅度|depeg|脱锚超过|跌破0\.9[0-8])", "头部稳定币恶性脱锚危机"),
     (r"(币安|OKX|Coinbase|Kraken).*(暂停全部提现|停止提币|申请破产重组|破产倒闭|发生严重挤兑)", "主流中心化交易所崩盘挤兑"),
     (r"(以太坊主网|比特币网络|Solana网络|BNB Chain).*(遭遇51%攻击|全网瘫痪停机|紧急硬分叉回滚)", "顶级底层公链系统性故障/51%攻击"),
-    (r"(全面取缔所有加密|宣布比特币非法|宣布数字货币交易非法|爆发核危机|宣战)", "国家级极端不可抗力/战争")
+    (r"(全面取缔所有加密|宣布比特币非法|宣布数字货币交易非法|爆发核危机|宣战)", "国家级极端不可抗力/战争"),
+    # English equivalents (OKX English items, web search results)
+    (r"\b(USDT|USDC|DAI|Tether)\b.{0,40}\b(depeg(ged|s)?|loses? (its )?(dollar )?peg)\b", "头部稳定币恶性脱锚危机"),
+    (r"\b(Binance|OKX|Coinbase|Kraken)\b.{0,60}\b(halts? all withdrawals|suspends? all withdrawals|files? for bankruptcy|bank run)\b", "主流中心化交易所崩盘挤兑"),
+    (r"\b(Ethereum|Bitcoin|Solana|BNB Chain)\b.{0,40}\b(51% attack|network halt(ed)?|chain halt(ed)?|emergency (hard )?fork rollback)\b", "顶级底层公链系统性故障/51%攻击"),
+    (r"\b(bans? all crypto(currency)?|declares? bitcoin illegal|nuclear (strike|attack)|declares? war)\b", "国家级极端不可抗力/战争"),
 ]
+
+# Perplexity web search (`pplx` CLI) is an optional English-language supplement to
+# the OKX feed. Enabled automatically when the CLI is on PATH; set R20_PPLX_NEWS=0
+# to disable. Results only carry a day-granular date and are often listing pages
+# whose snippets mix days of headlines, so they never trip the circuit breaker —
+# black-swan matches are surfaced as `alert` on the item for the AI/operator instead.
+PPLX_QUERY = os.environ.get("R20_PPLX_QUERY", "latest crypto market news {coins}")
+PPLX_LIMIT = 5
+PPLX_SNIPPET_CHARS = 300
 
 _HARVEST_START = time.time()
 # The trader shells out to this script with a hard budget before a cycle starts;
@@ -96,6 +112,49 @@ def run_json_cmd(cmd: str, timeout: int = 5, retries: int = 1):
             time.sleep(min(1.5 * (attempt + 1), max(0.5, UPSTREAM_BUDGET_SECONDS - (time.time() - _HARVEST_START))))
     print(f"[news-harvester] WARN upstream failed after {retries + 1} attempts: {cmd[:60]} -> {last_err}", file=sys.stderr)
     return None
+
+def _pplx_enabled() -> bool:
+    if os.environ.get("R20_PPLX_NEWS", "1").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    return shutil.which("pplx") is not None
+
+
+def match_black_swan(text: str):
+    for pattern, threat_name in BLACK_SWAN_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return threat_name
+    return None
+
+
+def fetch_web_news(coins) -> list:
+    """Supplementary web news via `pplx search web`. Returns [] when disabled or on failure."""
+    if not _pplx_enabled():
+        return []
+    query = PPLX_QUERY.format(coins=" ".join(coins[:5])).strip()
+    res = run_json_cmd(f"pplx search web {shlex.quote(query)} -n {PPLX_LIMIT}", timeout=6, retries=0)
+    hits = res.get("hits", []) if isinstance(res, dict) else []
+    items = []
+    seen = set()
+    for hit in hits:
+        if not isinstance(hit, dict):
+            continue
+        url = str(hit.get("url", "") or "")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        snippet = " ".join(str(hit.get("snippet", "") or "").split())[:PPLX_SNIPPET_CHARS]
+        title = str(hit.get("title", "") or "")
+        items.append({
+            "source": "pplx",
+            "title": title,
+            "summary": snippet,
+            "domain": str(hit.get("domain", "") or ""),
+            "date": hit.get("last_updated") or hit.get("date") or "",
+            "url": url,
+            "alert": match_black_swan(f"{title} {snippet}"),
+        })
+    return items
+
 
 def trigger_circuit_breaker(headline: str, keyword: str):
     tz_bj = datetime.timezone(datetime.timedelta(hours=8))
@@ -172,10 +231,9 @@ def fetch_and_analyze_news_sentiment():
 
         # Only evaluate black-swan patterns for news within last 15 minutes
         if time.time() - c_time < 900:
-            for pattern, threat_name in BLACK_SWAN_PATTERNS:
-                if re.search(pattern, full_text, re.IGNORECASE):
-                    triggered_threat = (title, threat_name)
-                    break
+            threat_name = match_black_swan(full_text)
+            if threat_name:
+                triggered_threat = (title, threat_name)
 
         parsed_news.append({
             "id": item.get("id"),
@@ -286,6 +344,15 @@ def fetch_and_analyze_news_sentiment():
                     "sentiment_factor_score": 0.0
                 }
 
+    # 2b. Supplementary English web news (Perplexity), advisory only
+    web_news = fetch_web_news(target_coins)
+    if not web_news and _pplx_enabled() and os.path.exists(NEWS_CACHE_FILE):
+        try:
+            with open(NEWS_CACHE_FILE, "r", encoding="utf-8") as f:
+                web_news = json.load(f).get("web_news", []) or []
+        except Exception:
+            web_news = []
+
     # 3. Overall Macro Sentiment Synthesis
     cb_active, cb_info = is_circuit_breaker_active()
     if cb_active:
@@ -302,6 +369,7 @@ def fetch_and_analyze_news_sentiment():
         "circuit_breaker": cb_info if cb_active else {"active": False},
         "coins_sentiment": coin_sentiments,
         "latest_news": parsed_news[:10],
+        "web_news": web_news,
         # Freshness of the *content* (newest item time), not of this run.
         "news_fresh_at": (parsed_news[0]["time"] if parsed_news else None),
     }

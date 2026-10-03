@@ -631,6 +631,9 @@ def construct_full_market_prompt(packages: List[Dict[str, Any]], pos_summary: st
                 macro_env = ns_data.get("macro_sentiment", "中性平衡")
                 for n in ns_data.get("latest_news", [])[:6]:
                     news_briefs.append(f"- [{n.get('time', '')}] {n.get('title', '')} ({n.get('summary', '')[:80]}...)")
+                for n in ns_data.get("web_news", [])[:3]:
+                    alert = f" ⚠️{n['alert']}(未经交叉验证)" if n.get("alert") else ""
+                    news_briefs.append(f"- [web {n.get('date', '')} {n.get('domain', '')}] {n.get('summary', '')[:120]}...{alert}")
         except Exception:
             pass
 
